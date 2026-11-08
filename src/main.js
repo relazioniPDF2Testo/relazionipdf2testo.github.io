@@ -328,7 +328,7 @@ function drawZones() {
   $('info').textContent = info;
   $('hint').textContent = S.mode === 'copri'
     ? 'Tieni premuto il mouse e trascina sopra le parti da non leggere.'
-    : 'Disegna un rettangolo attorno alla tabella. Poi sposta le linee viola tra una colonna e l\'altra.';
+    : 'Disegna un rettangolo attorno alla tabella. Poi sposta le linee blu tra una colonna e l\'altra.';
   $('addCol').hidden = !(S.mode === 'tabella' && p.tables.length);
   $('undo').disabled = !(S.hist[S.cur] && S.hist[S.cur].length);
 }

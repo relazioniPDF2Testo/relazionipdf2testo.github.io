@@ -20,6 +20,12 @@
       <section class="scr" id="s1" aria-labelledby="t1">
         <h1 class="ttl" id="t1">Carica la relazione</h1>
         <p class="sub">Scegli il PDF scansionato. Resta sul tuo computer, non viene inviato a nessuno.</p>
+        <label class="opt" for="autoCover">
+          <input type="checkbox" id="autoCover">
+          <span class="opt-box" aria-hidden="true"><svg viewBox="0 0 24 24" width="20" height="20"><path d="M5 12.5l4.5 4.5L19 7.5" fill="none" stroke="#fff" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
+          <span class="opt-txt"><span class="opt-t">Esclusione automatica di loghi, timbri e firme</span>
+          <span class="opt-d">Se è spuntata, queste parti vengono coperte da sole e poi puoi controllarle. A volte copre anche cose che servono.</span></span>
+        </label>
         <label class="drop" id="drop">
           <input type="file" id="file" accept="application/pdf,.pdf" hidden>
           <svg aria-hidden="true" viewBox="0 0 48 48" width="44" height="44"><path d="M14 6h14l10 10v26H14z" fill="#fff" stroke="currentColor" stroke-width="2.5" stroke-linejoin="round"/><path d="M28 6v10h10" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linejoin="round"/><path d="M26 36V22m-6 6 6-6 6 6" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
@@ -39,11 +45,19 @@
 
       <section class="scr" id="s2" aria-labelledby="t2">
         <div class="review">
-          <div class="thumbs" id="thumbs" aria-label="Pagine"></div>
-          <div class="stage-wrap" id="stageWrap">
-            <div class="stack" id="stack">
-              <img id="pageImg" alt="">
-              <div class="layer" id="layer"></div>
+          <div class="thumbs-col">
+            <p class="lab">Pagine da leggere</p>
+            <button class="btn mini" id="selAll" type="button">Seleziona tutte</button>
+            <button class="btn mini quiet" id="selNone" type="button">Deseleziona tutte</button>
+            <div class="thumbs" id="thumbs" aria-label="Pagine"></div>
+          </div>
+          <div class="stage-col">
+            <div class="zoombar" id="zoom2"></div>
+            <div class="stage-wrap" id="stageWrap">
+              <div class="stack" id="stack">
+                <img id="pageImg" alt="">
+                <div class="layer" id="layer"></div>
+              </div>
             </div>
             <p class="straight" id="straight"></p>
           </div>
@@ -86,11 +100,11 @@
         <p class="ok" id="msg3" role="status"></p>
         <div class="split">
           <div class="col">
-            <p class="lab">Documento originale</p>
+            <div class="lab-row"><p class="lab">Documento originale</p><div class="zoombar small" id="zoom3"></div></div>
             <div class="pane" id="left"></div>
           </div>
           <div class="col">
-            <p class="lab">Testo letto, puoi correggerlo qui</p>
+            <div class="lab-row"><p class="lab">Testo letto, puoi correggerlo qui</p></div>
             <div class="pane editor" id="editor" contenteditable="true" spellcheck="false"></div>
           </div>
         </div>

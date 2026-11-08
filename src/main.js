@@ -2,6 +2,7 @@ import '@fontsource-variable/atkinson-hyperlegible-next';
 import '@fontsource-variable/source-serif-4';
 import './style.css';
 import { openPdf, preparePage, pageForOcr } from './lib/pdf.js';
+import { canvasToBlob } from './lib/image.js';
 import { readPage, warmUp } from './lib/ocr.js';
 import { tokensToHtml } from './lib/text.js';
 import { detectColumns } from './lib/image.js';
@@ -9,7 +10,7 @@ import { blocksFromEditor, blocksToHtml, blocksToText, blocksToDocx } from './li
 import { saveDoc, getDoc, deleteDoc, allDocs, daysLeft, cleanup, askPersistence } from './lib/store.js';
 
 const $ = (id) => document.getElementById(id);
-const S = { step: 1, doc: null, pdf: null, urls: [], imgs: [], cur: 0, mode: 'copri', sel: -1, hist: {}, busy: false };
+const S = { step: 1, doc: null, pdf: null, urls: [], imgs: [], cur: 0, mode: 'copri', sel: -1, hist: {}, busy: false, z2: 1, z3: 1, hi: {} };
 
 // ---------- navigazione a linguette ----------
 const STEPS = ['Carica', 'Controlla le pagine', 'Testo pronto'];
@@ -76,7 +77,8 @@ async function renderRecent() {
 
 function closeDoc() {
   S.urls.forEach((u) => URL.revokeObjectURL(u));
-  Object.assign(S, { doc: null, pdf: null, urls: [], imgs: [], cur: 0, sel: -1, hist: {} });
+  Object.values(S.hi).forEach((p) => p.then((u) => u && URL.revokeObjectURL(u)));
+  Object.assign(S, { doc: null, pdf: null, urls: [], imgs: [], cur: 0, sel: -1, hist: {}, hi: {}, z2: 1, z3: 1 });
 }
 
 function setBusy1(on, frac = 0, txt = '') {
@@ -101,7 +103,10 @@ async function handleFile(file) {
     const pages = [];
     for (let i = 1; i <= pdf.numPages; i++) {
       setBusy1(true, (i - 1) / pdf.numPages, `Preparo la pagina ${i} di ${pdf.numPages}…`);
-      pages.push(await preparePage(pdf, i));
+      const pg = await preparePage(pdf, i);
+      pg.found = pg.covers;
+      if (!$('autoCover').checked) pg.covers = [];
+      pages.push(pg);
     }
     closeDoc();
     const now = Date.now();
@@ -146,6 +151,10 @@ async function reopen(id) {
   }
 }
 
+// opzione "esclusione automatica": ricordata su questo computer, spenta di default
+try { $('autoCover').checked = localStorage.getItem('autoCover') === '1'; } catch { /* nessuna memoria */ }
+$('autoCover').addEventListener('change', (e) => { try { localStorage.setItem('autoCover', e.target.checked ? '1' : '0'); } catch { /* facoltativo */ } });
+
 const drop = $('drop');
 $('file').addEventListener('change', (e) => handleFile(e.target.files[0]));
 ['dragenter', 'dragover'].forEach((t) => drop.addEventListener(t, (e) => { e.preventDefault(); drop.classList.add('over'); }));
@@ -166,9 +175,38 @@ function enterReview() {
 }
 
 function renderThumbs() {
-  $('thumbs').innerHTML = S.urls.map((u, i) => `<button class="th" type="button" data-i="${i}" ${i === S.cur ? 'aria-current="true"' : ''}>
-    <span class="im"><img src="${u}" alt=""><span class="scan"></span></span>${i + 1}</button>`).join('');
-  $('thumbs').querySelectorAll('.th').forEach((b) => b.addEventListener('click', () => { if (!S.busy) showPage(+b.dataset.i); }));
+  $('thumbs').innerHTML = S.urls.map((u, i) => `<div class="th${S.doc.pages[i].skip ? ' off' : ''}" data-i="${i}" ${i === S.cur ? 'aria-current="true"' : ''}>
+    <button class="open" type="button" aria-label="Mostra la pagina ${i + 1}"><span class="im"><img src="${u}" alt=""><span class="scan"></span></span></button>
+    <label class="pick"><input type="checkbox" ${S.doc.pages[i].skip ? '' : 'checked'}> Pagina ${i + 1}</label></div>`).join('');
+  $('thumbs').querySelectorAll('.th').forEach((el) => {
+    const i = +el.dataset.i;
+    el.querySelector('.open').addEventListener('click', () => { if (!S.busy) showPage(i); });
+    el.querySelector('input').addEventListener('change', (e) => setSkip([i], !e.target.checked));
+  });
+}
+
+function setSkip(list, skip) {
+  if (S.busy) return;
+  let any = false;
+  for (const i of list) if (!!S.doc.pages[i].skip !== skip) { S.doc.pages[i].skip = skip; any = true; }
+  if (!any) return;
+  if (S.doc.result) S.doc.stale = true;
+  $('thumbs').querySelectorAll('.th').forEach((el, i) => {
+    el.classList.toggle('off', !!S.doc.pages[i].skip);
+    el.querySelector('input').checked = !S.doc.pages[i].skip;
+  });
+  showPageNote();
+  updateReadButton();
+  saveSoon();
+}
+$('selAll').addEventListener('click', () => setSkip(S.doc.pages.map((_, i) => i), false));
+$('selNone').addEventListener('click', () => setSkip(S.doc.pages.map((_, i) => i), true));
+
+function showPageNote() {
+  const p = page(), el = $('straight');
+  el.classList.toggle('warn', !!p.skip);
+  if (p.skip) el.textContent = 'Questa pagina è esclusa e non verrà letta. Spunta la casella a sinistra per includerla.';
+  else el.textContent = p.skew ? `Pagina raddrizzata in automatico: era storta di ${Math.abs(p.skew).toFixed(1).replace('.', ',')}°.` : '';
 }
 
 function showPage(i) {
@@ -177,10 +215,11 @@ function showPage(i) {
   $('thumbs').querySelectorAll('.th').forEach((b, k) => b.toggleAttribute('aria-current', k === i));
   $('thumbs').children[i]?.scrollIntoView({ block: 'nearest' });
   $('pageImg').src = S.urls[i];
-  const sk = page().skew;
-  $('straight').textContent = sk ? `Pagina raddrizzata in automatico: era storta di ${Math.abs(sk).toFixed(1).replace('.', ',')}°.` : '';
+  if (S.z2 > 1) useHi(i);
+  showPageNote();
   $('pageNo').textContent = `Pagina ${i + 1} di ${S.doc.pages.length}`;
   fitStage();
+  $('stageWrap').scrollTo(0, 0);
   drawZones();
 }
 
@@ -188,14 +227,73 @@ function fitStage() {
   if (S.step !== 2 || !S.doc) return;
   const wrap = $('stageWrap');
   const top = wrap.getBoundingClientRect().top;
-  const availH = Math.max(320, window.innerHeight - top - 70);
-  const availW = wrap.clientWidth - 16;
+  const availH = Math.max(320, window.innerHeight - top - 64);
+  wrap.style.height = `${availH}px`;
   const ratio = page().ratio;
-  const w = Math.min(availW, availH / ratio);
+  const w0 = Math.min(wrap.clientWidth - 30, (availH - 30) / ratio);
+  const w = w0 * S.z2;
   $('stack').style.width = `${w}px`;
   $('stack').style.height = `${w * ratio}px`;
+  wrap.classList.toggle('zoomed', S.z2 > 1);
 }
 window.addEventListener('resize', fitStage);
+
+// ---------- ingrandimento ----------
+const LEVELS = [1, 1.5, 2, 3, 4];
+
+// Oltre il 100% l'anteprima non basta: si rende la pagina a piena risoluzione (una volta sola).
+function hiRes(i) {
+  if (!S.hi[i]) {
+    const pdf = S.pdf, sk = S.doc.pages[i].skew;
+    S.hi[i] = pageForOcr(pdf, i + 1, sk).then((c) => canvasToBlob(c, 'image/jpeg', 0.9)).then((b) => URL.createObjectURL(b)).catch(() => null);
+  }
+  return S.hi[i];
+}
+function useHi(i) {
+  hiRes(i).then((u) => { if (u && S.step === 2 && S.cur === i && S.z2 > 1) $('pageImg').src = u; });
+}
+
+function zoomBar(box, get, set) {
+  box.innerHTML = `<button class="btn sq" type="button" data-d="-1" aria-label="Rimpicciolisci" title="Rimpicciolisci">−</button>
+    <span class="lvl" aria-live="polite"></span>
+    <button class="btn sq" type="button" data-d="1" aria-label="Ingrandisci" title="Ingrandisci">+</button>
+    <button class="btn" type="button" data-d="0">Adatta</button>`;
+  const lvl = box.querySelector('.lvl');
+  const show = () => { lvl.textContent = `${Math.round(get() * 100)}%`; };
+  box.addEventListener('click', (e) => {
+    const b = e.target.closest('button');
+    if (!b) return;
+    const d = +b.dataset.d, k = LEVELS.indexOf(get());
+    const z = d === 0 ? 1 : LEVELS[Math.max(0, Math.min(LEVELS.length - 1, k + d))];
+    if (z !== get()) { set(z); show(); }
+  });
+  show();
+  return { show, step: (d) => box.querySelector(`[data-d="${d}"]`).click() };
+}
+
+// mantiene al centro lo stesso punto della pagina quando cambia l'ingrandimento
+function keepCenter(pane, fn) {
+  const cx = (pane.scrollLeft + pane.clientWidth / 2) / Math.max(1, pane.scrollWidth);
+  const cy = (pane.scrollTop + pane.clientHeight / 2) / Math.max(1, pane.scrollHeight);
+  fn();
+  pane.scrollLeft = cx * pane.scrollWidth - pane.clientWidth / 2;
+  pane.scrollTop = cy * pane.scrollHeight - pane.clientHeight / 2;
+}
+
+const zoom2 = zoomBar($('zoom2'), () => S.z2, (z) => {
+  keepCenter($('stageWrap'), () => { S.z2 = z; fitStage(); });
+  if (z > 1) useHi(S.cur); else $('pageImg').src = S.urls[S.cur];
+});
+
+// Ctrl + rotellina per ingrandire, come nei lettori PDF
+function wheelZoom(el, bar) {
+  el.addEventListener('wheel', (e) => {
+    if (!e.ctrlKey) return;
+    e.preventDefault();
+    bar.step(e.deltaY < 0 ? 1 : -1);
+  }, { passive: false });
+}
+wheelZoom($('stageWrap'), zoom2);
 
 const pct = (v) => `${(v * 100).toFixed(3)}%`;
 
@@ -361,29 +459,34 @@ function estimate(n) {
   return m === 1 ? 'circa un minuto' : `circa ${m} minuti`;
 }
 function updateReadButton() {
-  const d = S.doc, n = d.pages.length;
+  const d = S.doc, tot = d.pages.length, n = d.pages.filter((p) => !p.skip).length;
   $('read').textContent = d.result ? (d.stale ? 'Leggi di nuovo il testo' : 'Vai al testo') : 'Leggi il testo';
-  $('readNote').textContent = d.result && !d.stale ? '' : `${n} ${n === 1 ? 'pagina' : 'pagine'}, ${estimate(n)}.`;
+  if (d.result && !d.stale) $('readNote').textContent = '';
+  else if (!n) $('readNote').textContent = 'Nessuna pagina selezionata: spunta almeno una pagina a sinistra.';
+  else $('readNote').textContent = `${n === tot ? (n === 1 ? '1 pagina' : `Tutte le ${n} pagine`) : `${n} ${n === 1 ? "pagina" : "pagine"} su ${tot}`}, ${estimate(n)}.`;
 }
 
 $('read').addEventListener('click', async () => {
   const d = S.doc;
   if (d.result && !d.stale) return go(3);
+  const todo = d.pages.map((p, i) => (p.skip ? -1 : i)).filter((i) => i >= 0);
+  if (!todo.length) { $('readNote').textContent = 'Nessuna pagina selezionata: spunta almeno una pagina a sinistra.'; return; }
   if (d.result && d.html && !confirm('Leggendo di nuovo il testo, le correzioni che hai fatto a mano andranno perse. Continuare?')) return;
   S.busy = true;
   renderTabs();
   $('read').disabled = true;
   const thumbs = [...$('thumbs').children];
   thumbs.forEach((t) => t.classList.remove('done'));
-  const pages = [];
+  const pages = d.pages.map(() => null);
   try {
-    for (let i = 0; i < d.pages.length; i++) {
+    for (let k = 0; k < todo.length; k++) {
+      const i = todo[k];
       showPage(i);
       const th = thumbs[i], scan = th.querySelector('.scan');
       th.classList.add('reading');
-      $('readNote').textContent = `Lettura della pagina ${i + 1} di ${d.pages.length}…`;
+      $('readNote').textContent = `Lettura della pagina ${i + 1} (${k + 1} di ${todo.length})…`;
       const canvas = await pageForOcr(S.pdf, i + 1, d.pages[i].skew);
-      pages.push(await readPage(canvas, d.pages[i], (f) => { scan.style.top = `${Math.min(97, f * 100)}%`; }));
+      pages[i] = await readPage(canvas, d.pages[i], (f) => { scan.style.top = `${Math.min(97, f * 100)}%`; });
       th.classList.remove('reading');
       th.classList.add('done');
     }
@@ -408,8 +511,11 @@ $('read').addEventListener('click', async () => {
 const editor = $('editor'), left = $('left');
 
 function buildHtml(result) {
+  let first = true;
   return result.pages.map((items, p) => {
-    let h = p ? `<div class="pbreak" contenteditable="false" data-k="pg-${p}">Pagina ${p + 1}</div>` : '';
+    if (!items) return '';
+    let h = first ? '' : `<div class="pbreak" contenteditable="false" data-k="pg-${p}">Pagina ${p + 1}</div>`;
+    first = false;
     items.forEach((it, i) => {
       const k = `${p}-${i}`;
       if (it.type === 'p') h += `<p data-k="${k}">${tokensToHtml(it.tokens)}</p>`;
@@ -422,12 +528,27 @@ function buildHtml(result) {
 function enterResult() {
   const d = S.doc;
   $('msg3').textContent = '';
-  left.innerHTML = d.result.pages.map((items, p) => `<div class="rpage" data-k="pg-${p}"><img src="${S.urls[p]}" alt="Pagina ${p + 1}">${
-    items.map((it, i) => `<div class="anchor" data-k="${p}-${i}" style="left:${pct(it.box.x)};top:${pct(it.box.y)};width:${pct(it.box.w)};height:${pct(it.box.h)}"></div>`).join('')}</div>`).join('');
+  left.innerHTML = d.result.pages.map((items, p) => (items ? `<div class="rpage" data-k="pg-${p}"><img src="${S.urls[p]}" alt="Pagina ${p + 1}" data-p="${p}">${
+    items.map((it, i) => `<div class="anchor" data-k="${p}-${i}" style="left:${pct(it.box.x)};top:${pct(it.box.y)};width:${pct(it.box.w)};height:${pct(it.box.h)}"></div>`).join('')}</div>` : '')).join('');
   editor.innerHTML = d.html || buildHtml(d.result);
+  left.style.setProperty('--z', S.z3);
+  if (S.z3 > 1) hiResLeft();
+  zoom3.show();
   left.scrollTop = 0;
   editor.scrollTop = 0;
 }
+
+function hiResLeft() {
+  left.querySelectorAll('img[data-p]').forEach((img) => {
+    const p = +img.dataset.p;
+    hiRes(p).then((u) => { if (u && S.z3 > 1 && img.isConnected) img.src = u; });
+  });
+}
+const zoom3 = zoomBar($('zoom3'), () => S.z3, (z) => {
+  keepCenter(left, () => { S.z3 = z; left.style.setProperty('--z', z); });
+  if (z > 1) hiResLeft();
+});
+wheelZoom(left, zoom3);
 
 // scorrimento sincronizzato, ancorato paragrafo per paragrafo
 const topIn = (el, pane) => el.getBoundingClientRect().top - pane.getBoundingClientRect().top + pane.scrollTop;

@@ -58,7 +58,7 @@ async function renderRecent() {
   if (!docs.length) { box.innerHTML = '<p class="empty">Qui compariranno i documenti che hai già letto.</p>'; return; }
   box.innerHTML = docs.map((d) => {
     const n = daysLeft(d);
-    return `<div class="row"><svg aria-hidden="true" viewBox="0 0 24 24" width="26" height="26"><path d="M6 2h9l5 5v15H6z" fill="none" stroke="#0F5C6E" stroke-width="1.8" stroke-linejoin="round"/><path d="M9 12h8M9 16h8" stroke="#0F5C6E" stroke-width="1.8"/></svg>
+    return `<div class="row"><svg aria-hidden="true" viewBox="0 0 24 24" width="26" height="26"><path d="M6 2h9l5 5v15H6z" fill="none" stroke="#D02008" stroke-width="1.8" stroke-linejoin="round"/><path d="M9 12h8M9 16h8" stroke="#D02008" stroke-width="1.8"/></svg>
       <div class="meta"><div class="name"></div><div class="when">Aperto il ${fmtDay(d.lastOpened)}. Si cancella ${n === 0 ? 'oggi' : n === 1 ? 'domani' : `tra ${n} giorni`}.</div></div>
       <button class="btn" type="button" data-open="${d.id}">Riapri</button>
       <button class="btn quiet" type="button" data-del="${d.id}">Elimina</button></div>`;
@@ -328,7 +328,7 @@ function drawZones() {
   $('info').textContent = info;
   $('hint').textContent = S.mode === 'copri'
     ? 'Tieni premuto il mouse e trascina sopra le parti da non leggere.'
-    : 'Disegna un rettangolo attorno alla tabella. Poi sposta le linee blu tra una colonna e l\'altra.';
+    : 'Disegna un rettangolo attorno alla tabella. Poi sposta le linee viola tra una colonna e l\'altra.';
   $('addCol').hidden = !(S.mode === 'tabella' && p.tables.length);
   $('undo').disabled = !(S.hist[S.cur] && S.hist[S.cur].length);
 }

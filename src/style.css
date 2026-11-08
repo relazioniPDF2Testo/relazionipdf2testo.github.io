@@ -39,7 +39,7 @@ button { font: inherit; }
 .tab { all: unset; cursor: pointer; display: flex; align-items: baseline; gap: 10px; background: var(--tab); color: var(--ink2); border-radius: 12px 12px 0 0; padding: 9px 22px 9px; font-size: 17px; }
 .tab .n { font-family: var(--serif); font-size: 22px; }
 .tab .chk { color: var(--petrol); font-weight: 600; }
-.tab[aria-current='step'] { background: var(--paper); color: var(--ink); padding-top: 14px; box-shadow: inset 0 4px 0 var(--orange); }
+.tab[aria-current='step'] { background: var(--paper); color: var(--ink); padding-top: 14px; box-shadow: inset 0 4px 0 var(--blue); }
 .tab[aria-current='step'] .n { color: var(--petrol); }
 .tab[aria-disabled='true'] { cursor: default; opacity: .55; }
 .tab:focus-visible { outline: 3px solid var(--blue); outline-offset: -3px; }

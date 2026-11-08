@@ -1,0 +1,9 @@
+node_modules/
+dist/
+public/tesseract/
+.DS_Store
+
+# Nessun documento vero deve mai finire nella repository
+*.pdf
+*.docx
+!tests/fixtures/*.pdf
